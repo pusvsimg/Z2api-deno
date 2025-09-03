@@ -26,15 +26,15 @@
 // 上游 Z.ai API 地址
 const UPSTREAM_URL = "https://chat.z.ai/api/chat/completions";
 // 下游客户端鉴权的 key (环境变量: DOWNSTREAM_KEY)
-const DOWNSTREAM_KEY = Deno.env.get("DOWNSTREAM_KEY") || "sk-your-key";
+const DOWNSTREAM_KEY =  "123456";
 // 上游 API 的备用 token (环境变量: UPSTREAM_TOKEN)
-const UPSTREAM_TOKEN = Deno.env.get("UPSTREAM_TOKEN") || "your-upstream-token-here";
+const UPSTREAM_TOKEN =  "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODkwYTFlLTlhNGMtNDgxYS05ZDUxLWJhNjg0ZjZhMjg5ZiIsImVtYWlsIjoiR3Vlc3QtMTc1NjQxNjAxNjAzOEBndWVzdC5jb20ifQ.Pcy5W9cmaRdUrojk79CWQdrj4c03tdBzEmV9BH5rQKwFvKRG0BkBBxmqE5GgwLGBde3Y26FVVfV1A7UtrBSFGQ";
 // 是否开启调试模式
-const DEBUG_MODE = Deno.env.get("DEBUG_MODE") === "true" || false;
+const DEBUG_MODE =  false;
 // 思考内容处理策略: "strip" | "think" | "raw" (环境变量: THINK_TAGS_MODE)
-const THINK_TAGS_MODE = Deno.env.get("THINK_TAGS_MODE") || "strip";
+const THINK_TAGS_MODE =  "strip";
 // 是否启用匿名 token (环境变量: ANON_TOKEN_ENABLED)
-const ANON_TOKEN_ENABLED_STR = Deno.env.get("ANON_TOKEN_ENABLED");
+const ANON_TOKEN_ENABLED_STR = "true";
 const ANON_TOKEN_ENABLED = ANON_TOKEN_ENABLED_STR !== undefined ? ANON_TOKEN_ENABLED_STR === 'true' : true;
 // ================================================
 
