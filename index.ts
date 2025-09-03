@@ -456,15 +456,12 @@ function transformThinking(s: string): string {
 }
 
 // ================= Deno Entry Point ==================
-// Deno: 使用 Deno.serve() 启动服务器，替换 CF Worker 的 export default
-if (import.meta.main) {
-  const port = parseInt(Deno.env.get("PORT") || "8000");
-  console.log(`OpenAI to Z.ai Proxy (Deno Version)`);
-  console.log(`Server is running on http://localhost:${port}`);
-  console.log(`Downstream KEY: ${DOWNSTREAM_KEY.slice(0, 5)}...`);
-  console.log(`Upstream Token: ${UPSTREAM_TOKEN.length > 0 ? `${UPSTREAM_TOKEN.slice(0,5)}...` : 'N/A'}`);
-  console.log(`Anonymous Token: ${ANON_TOKEN_ENABLED ? 'Enabled' : 'Disabled'}`);
-  console.log(`Debug Mode: ${DEBUG_MODE ? 'Enabled' : 'Disabled'}`);
-  
-  Deno.serve({ port }, handleRequest);
-}
+// Deno: 使用 Deno.serve() 启动服务器。Deno Deploy 会自动处理端口。
+console.log(`OpenAI to Z.ai Proxy (Deno Version)`);
+console.log(`Downstream KEY: ${DOWNSTREAM_KEY.slice(0, 5)}...`);
+console.log(`Upstream Token: ${UPSTREAM_TOKEN.length > 0 ? `${UPSTREAM_TOKEN.slice(0,5)}...` : 'N/A'}`);
+console.log(`Anonymous Token: ${ANON_TOKEN_ENABLED ? 'Enabled' : 'Disabled'}`);
+console.log(`Debug Mode: ${DEBUG_MODE ? 'Enabled' : 'Disabled'}`);
+console.log(`Starting server for Deno Deploy...`);
+
+Deno.serve(handleRequest);
