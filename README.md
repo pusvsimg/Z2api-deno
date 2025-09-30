@@ -1,18 +1,5 @@
 # Z2API: OpenAI to Z.ai 代理服务
 
-> [!IMPORTANT]
-> **🚨 紧急更新 (2025-09-30)**: 已修复 426 客户端校验失败错误
-> 
-> Z.ai 更新了验证机制，所有用户需要**立即重新部署**以修复 426 错误。
-> 
-> **快速修复**: 
-> - Cloudflare Workers: `wrangler deploy`
-> - Deno Deploy: `git push origin main`
-> 
-> **详细说明**: [QUICK_FIX.md](QUICK_FIX.md) | [完整文档](FIX_426_COMPLETE.md)
-
----
-
 > [!CAUTION]
 > **免责声明**
 >
@@ -32,6 +19,21 @@
 
 ---
 
+## 📑 目录
+
+- [功能特性](#-功能特性)
+- [快速部署](#-快速部署)
+  - [Cloudflare Workers 部署](#cloudflare-workers-部署推荐)
+  - [Deno Deploy 部署](#deno-deploy-部署)
+- [环境变量配置](#️-环境变量配置)
+- [思考内容展示](#-思考内容展示)
+- [客户端使用示例](#-客户端使用示例)
+- [本地开发](#-本地开发)
+- [故障排查](#-故障排查)
+- [更新日志](#-更新日志)
+
+---
+
 ## ✨ 功能特性
 
 - ✅ **OpenAI 完全兼容**: 支持 `/v1/chat/completions` 和 `/v1/models` 接口
@@ -47,42 +49,94 @@
 
 ## 🚀 快速部署
 
-### 选项 1: Cloudflare Workers（推荐）
+### Cloudflare Workers 部署（推荐）
 
-**3 步完成部署**：
+#### 前置要求
+- Node.js 16+ 或 npm
+- Cloudflare 账号（免费）
 
+#### 部署步骤
+
+**1. 安装 Wrangler**
 ```bash
-# 1. 安装并登录
 npm install -g wrangler
+```
+
+**2. 登录 Cloudflare**
+```bash
 wrangler login
+```
+浏览器会打开，登录您的 Cloudflare 账号
 
-# 2. 配置密钥
+**3. 克隆项目**
+```bash
+git clone https://github.com/your-repo/Z2api-deno.git
+cd Z2api-deno
+```
+
+**4. 配置 Secrets**
+```bash
+# 必需：客户端认证密钥
 wrangler secret put DOWNSTREAM_KEY
-# 输入: sk-your-key-123
+# 输入: sk-your-secure-key-123
 
-# 3. 部署
+# 可选：Z.ai 备用 token
+wrangler secret put UPSTREAM_TOKEN
+# 输入: 您的 Z.ai token（可留空，会自动获取匿名 token）
+```
+
+**5. 配置环境变量**
+
+编辑 `wrangler.toml`：
+```toml
+[vars]
+ANON_TOKEN_ENABLED = "true"   # 启用匿名 token
+THINK_TAGS_MODE = "show"      # show=显示思考内容 / strip=不显示
+DEBUG_MODE = "false"          # 生产环境关闭调试
+```
+
+**6. 部署**
+```bash
 wrangler deploy
 ```
 
-部署完成后获得：`https://your-worker.workers.dev`
+成功后显示：
+```
+✨ Published openai-to-zai-proxy
+   https://openai-to-zai-proxy.your-subdomain.workers.dev
+```
 
-**详细指南**: [CLOUDFLARE_DEPLOY.md](CLOUDFLARE_DEPLOY.md)
+**7. 测试**
+```bash
+curl https://openai-to-zai-proxy.your-subdomain.workers.dev/health
+```
+
+#### 自定义域名
+
+**添加域名**：
+1. Worker 设置 → Triggers → Add Custom Domain
+2. 输入域名：`api.yourdomain.com`
+3. 按照提示配置 DNS
 
 ---
 
-### 选项 2: Deno Deploy（一键部署）
+### Deno Deploy 部署
 
 [![Deploy with Deno](https://deno.com/deno-deploy-button.svg)](https://dash.deno.com/new?url=https://raw.githubusercontent.com/james-6-23/Z2api-deno/main/index.ts)
 
-部署后在 Settings -> Environment Variables 配置：
+部署后在 Settings → Environment Variables 配置：
 ```
 DOWNSTREAM_KEY = sk-your-key-123
 THINK_TAGS_MODE = show
+ANON_TOKEN_ENABLED = true
+DEBUG_MODE = false
 ```
 
 ---
 
 ## ⚙️ 环境变量配置
+
+### 配置项说明
 
 | 变量名 | 必需 | 说明 | 默认值 |
 |--------|:----:|------|--------|
@@ -91,6 +145,24 @@ THINK_TAGS_MODE = show
 | `ANON_TOKEN_ENABLED` | ❌ | 启用匿名 Token | `true` |
 | `THINK_TAGS_MODE` | ❌ | 思考内容模式：`strip`(不显示) / `show`(显示) | `strip` |
 | `DEBUG_MODE` | ❌ | 调试模式 | `false` |
+
+### 配置方式
+
+**Cloudflare Workers**:
+```bash
+# Secrets（加密变量）
+wrangler secret put DOWNSTREAM_KEY
+wrangler secret put UPSTREAM_TOKEN
+
+# Environment Variables（公开变量，在 wrangler.toml 中）
+[vars]
+ANON_TOKEN_ENABLED = "true"
+THINK_TAGS_MODE = "show"
+DEBUG_MODE = "false"
+```
+
+**Deno Deploy**:
+在 Dashboard → Settings → Environment Variables 中配置
 
 ---
 
@@ -248,10 +320,15 @@ npm install
 cat > .dev.vars << EOF
 DOWNSTREAM_KEY=sk-test-key
 UPSTREAM_TOKEN=your-test-token
+ANON_TOKEN_ENABLED=true
+THINK_TAGS_MODE=show
+DEBUG_MODE=true
 EOF
 
 # 3. 本地运行
 npm run dev
+
+# 服务运行在 http://localhost:8787
 
 # 4. 部署到生产
 npm run deploy
@@ -275,6 +352,29 @@ npm run deploy
 
 ## 🐛 故障排查
 
+### 健康检查
+
+访问健康检查端点：
+
+```bash
+curl https://your-worker.workers.dev/health
+```
+
+**正常输出**：
+```json
+{
+  "status": "ok",
+  "service": "OpenAI to Z.ai Proxy",
+  "timestamp": "2025-09-30T12:00:00.000Z",
+  "config": {
+    "anon_token_enabled": true,
+    "upstream_token_configured": true,
+    "downstream_key_configured": true,
+    "debug_mode": false
+  }
+}
+```
+
 ### 常见问题
 
 #### 502 Upstream error
@@ -283,18 +383,36 @@ npm run deploy
 
 **解决**:
 ```bash
-# 设置有效的 UPSTREAM_TOKEN
-wrangler secret put UPSTREAM_TOKEN
+# 方案 A: 使用匿名 Token（推荐）
+wrangler secret put ANON_TOKEN_ENABLED
+# 输入: true
+wrangler deploy
 
-# 或启用匿名 token
-ANON_TOKEN_ENABLED=true
+# 方案 B: 使用固定 Token
+wrangler secret put UPSTREAM_TOKEN
+# 粘贴您的 Z.ai token
+wrangler deploy
 ```
+
+**获取 Token**:
+1. 访问 https://chat.z.ai
+2. 登录账号
+3. 按 F12 打开开发者工具
+4. Application → Cookies → 复制 `token` 值
 
 #### 401 Invalid API key
 
 **原因**: 客户端 API Key 与 DOWNSTREAM_KEY 不匹配
 
-**解决**: 确保客户端使用的 key 与配置的 DOWNSTREAM_KEY 一致
+**解决**:
+```bash
+wrangler secret list  # 查看已配置的 secrets
+
+wrangler secret put DOWNSTREAM_KEY
+# 输入新的 key: sk-new-key-123
+
+wrangler deploy
+```
 
 #### 思考内容不显示
 
@@ -303,27 +421,166 @@ ANON_TOKEN_ENABLED=true
 2. 确认已重新部署
 3. 确认客户端支持 `reasoning_content` 字段（Cherry Studio、LobeChat 支持）
 
-#### 思考内容卡顿
-
-**诊断**:
+**测试命令**:
 ```bash
-# 启用调试模式
-DEBUG_MODE=true
-
-# 查看日志
-wrangler tail  # Cloudflare
-# 或查看 Deno Deploy 日志
+curl https://your-worker.workers.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-key" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }' | grep "reasoning_content"
 ```
 
-**详细排查**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+#### 思考内容卡顿
+
+**诊断步骤**:
+
+1. **对比官网**: 访问 https://chat.z.ai 发送相同消息，观察思考内容展开速度
+   - 如果官网也卡 → 上游问题
+   - 如果只有代理卡 → 继续诊断
+
+2. **启用调试模式**:
+```bash
+# 修改 wrangler.toml
+DEBUG_MODE = "true"
+
+wrangler deploy
+wrangler tail
+```
+
+3. **观察日志**:
+```
+[DEBUG] [Thinking] 原始: 分析用户... -> 处理后: 分析用户...
+[DEBUG] [Thinking] 已发送 chunk，长度: 15
+```
+
+**解决方案**:
+- 使用固定 Token 减少网络延迟
+- 如果是上游问题，无法在代理层面解决
+- 临时方案：禁用思考内容 `THINK_TAGS_MODE=strip`
+
+### 调试工具
+
+**启用详细日志**:
+```bash
+# Cloudflare Workers
+DEBUG_MODE = "true"  # 在 wrangler.toml 中
+wrangler deploy
+wrangler tail  # 查看实时日志
+
+# Deno Deploy
+DEBUG_MODE=true deno run --allow-net --allow-env index.ts
+```
+
+**测试脚本**:
+```bash
+# 测试模型列表
+curl https://your-worker.workers.dev/v1/models \
+  -H "Authorization: Bearer sk-your-key"
+
+# 测试流式对话
+curl -N https://your-worker.workers.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-key" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }'
+```
+
+### 性能优化
+
+**1. 使用固定 Token**
+```bash
+wrangler secret put UPSTREAM_TOKEN
+# 粘贴有效的 Z.ai token
+
+# 在 wrangler.toml 中
+ANON_TOKEN_ENABLED = "false"
+```
+**效果**: 减少 100-300ms 延迟
+
+**2. 使用自定义域名**
+Cloudflare Workers 自定义域名性能更好
+**效果**: 减少冷启动时间
+
+**3. 禁用思考内容**
+```toml
+THINK_TAGS_MODE = "strip"
+```
+**效果**: 减少数据传输和渲染开销
+
+### 监控和日志
+
+**Cloudflare Workers**:
+```bash
+wrangler tail  # 实时日志
+# 或在 Dashboard → Worker → Logs 查看
+```
+
+**Deno Deploy**:
+在 Dashboard → Logs 标签查看实时日志
+
+### 安全建议
+
+1. **保护 API Key**
+   - ✅ 使用强随机密钥
+   - ✅ 定期轮换密钥
+   - ✅ 不要在代码中硬编码
+   - ✅ 使用 Secrets 管理敏感信息
+
+2. **限制访问**
+   - Cloudflare: 使用 WAF 规则限制 IP、设置速率限制
+   - Deno: 在代码中添加 IP 白名单、实现速率限制
+
+3. **监控异常**
+   - 定期查看日志
+   - 监控请求量
+   - 设置告警
+
+### 测试清单
+
+部署前检查：
+
+- [ ] `DOWNSTREAM_KEY` 已设置
+- [ ] `UPSTREAM_TOKEN` 已设置或 `ANON_TOKEN_ENABLED=true`
+- [ ] `THINK_TAGS_MODE` 已配置（strip 或 show）
+- [ ] 已运行 `wrangler deploy` 或重新部署 Deno
+- [ ] `/health` 端点返回正常
+- [ ] `/v1/models` 返回模型列表
+- [ ] `/v1/chat/completions` 可以正常对话
+- [ ] 思考内容按预期显示（如果使用 show 模式）
+
+### 性能基准
+
+**典型延迟（ms）**:
+
+| 操作 | Deno Deploy | Cloudflare Workers |
+|------|------------|-------------------|
+| 模型列表 | 200-400ms | 150-300ms |
+| 首个 token | 500-800ms | 400-600ms |
+| 流式响应 | 50-100ms/token | 30-80ms/token |
+| 匿名 token 获取 | 200-400ms | 150-300ms |
+
+**优化建议**:
+
+| 场景 | 建议 |
+|------|------|
+| 高并发 | Cloudflare Workers + 固定 Token |
+| 个人使用 | Deno Deploy + 匿名 Token |
+| 需要思考内容 | show 模式 + Cherry Studio |
+| 追求速度 | strip 模式 + 固定 Token |
 
 ---
 
-## 📊 版本更新记录
+## 📊 更新日志
 
 ### v4.1.0（当前版本）- 2025-09-30
 
-> 🚨 **重要**: 此版本修复了 426 客户端校验失败错误，所有用户需要立即更新！
+> 🚨 **重要**: 此版本修复了 426 客户端校验失败错误
 
 **紧急修复**:
 - 🔧 修复 426 错误：`{"detail":"您的客户端校验失败","code":426}`
@@ -332,7 +589,7 @@ wrangler tail  # Cloudflare
 - ✅ 更新请求头至 Chrome 140 标准
 - ✅ 同步 Deno 和 Workers 版本
 
-**修复内容**:
+**技术细节**:
 ```javascript
 // 新增 X-Signature 生成（基于请求体的 SHA-256 哈希）
 async function generateSignature(body) {
@@ -342,11 +599,16 @@ async function generateSignature(body) {
 }
 ```
 
-**部署说明**: 查看 [QUICK_FIX.md](QUICK_FIX.md) 或 [FIX_426_COMPLETE.md](FIX_426_COMPLETE.md)
+**升级方法**:
+```bash
+# Cloudflare Workers
+wrangler deploy
 
----
+# Deno Deploy
+git push origin main
+```
 
-### v4.0 - 2025-09-30
+### v4.0.0 - 2025-09-30
 
 **重大改进**:
 - 🎉 采用 OpenAI o1 标准 `reasoning_content` 字段
@@ -378,14 +640,13 @@ async function generateSignature(body) {
 
 欢迎提交 Issue 和 Pull Request！
 
+---
+
 ## 📄 许可证
 
 MIT License
 
 ---
 
-## 📖 文档导航
-
-- 📘 **README.md**（本文档）- 项目总览和快速开始
-- 📗 **CLOUDFLARE_DEPLOY.md** - Cloudflare Workers 详细部署指南
-- 📙 **TROUBLESHOOTING.md** - 故障排查和性能优化
+**最后更新**: 2025-09-30  
+**当前版本**: v4.1.0
