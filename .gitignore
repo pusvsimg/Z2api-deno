@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Wrangler
+.wrangler/
+.dev.vars
+worker-configuration.d.ts
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Deno
+deno.lock
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+wrangler*.log
+
+# Build
+dist/
+build/
+
+# Test files
+tt.txt
+test/
+*.test.ts
+*.test.js

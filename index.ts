@@ -1,23 +1,27 @@
 /**
- * Deno: OpenAI to Z.ai Proxy
+ * Deno: OpenAI to Z.ai Proxy (v4.0 标准化版本)
  *
- * 这是从 Cloudflare Worker 版本转换而来的 Deno 脚本。
- * 它整合了所有功能：严格的 OpenAI 格式匹配和动态模型列表获取。
+ * 采用 OpenAI o1 标准格式，使用 reasoning_content 字段传输思考内容。
+ * 与 Cloudflare Workers 版本保持一致。
  *
  * 如何运行:
  * 1. (可选) 创建一个 `.env` 文件来管理你的密钥:
  *    DOWNSTREAM_KEY="sk-your-key"
  *    UPSTREAM_TOKEN="your-upstream-token-here"
  *    ANON_TOKEN_ENABLED="true"
- *    THINK_TAGS_MODE="strip"
+ *    THINK_TAGS_MODE="show"
+ *    DEBUG_MODE="false"
  *    PORT="8000"
  *
  * 2. 运行脚本 (需要 Deno v1.33+):
- *    deno run --allow-net --allow-env deno_proxy.ts
+ *    deno run --allow-net --allow-env index.ts
  *
- *    如果你使用了 .env 文件, Deno 会自动加载它。
- *    或者，你可以通过命令行设置环境变量:
- *    PORT=8080 DOWNSTREAM_KEY="sk-123" deno run --allow-net --allow-env deno_proxy.ts
+ *    或通过命令行设置环境变量:
+ *    PORT=8080 DOWNSTREAM_KEY="sk-123" deno run --allow-net --allow-env index.ts
+ * 
+ * 思考内容处理模式:
+ *    - strip: 不显示思考内容（默认）
+ *    - show: 显示思考内容（使用 reasoning_content 字段，Cherry Studio 等客户端原生支持）
  */
 
 // ================= Configuration ==================
@@ -26,13 +30,13 @@
 // 上游 Z.ai API 地址
 const UPSTREAM_URL = "https://chat.z.ai/api/chat/completions";
 // 下游客户端鉴权的 key (环境变量: DOWNSTREAM_KEY)
-const DOWNSTREAM_KEY =  "123456";
+const DOWNSTREAM_KEY = "123456";
 // 上游 API 的备用 token (环境变量: UPSTREAM_TOKEN)
-const UPSTREAM_TOKEN =  "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODkwYTFlLTlhNGMtNDgxYS05ZDUxLWJhNjg0ZjZhMjg5ZiIsImVtYWlsIjoiR3Vlc3QtMTc1NjQxNjAxNjAzOEBndWVzdC5jb20ifQ.Pcy5W9cmaRdUrojk79CWQdrj4c03tdBzEmV9BH5rQKwFvKRG0BkBBxmqE5GgwLGBde3Y26FVVfV1A7UtrBSFGQ";
-// 是否开启调试模式
-const DEBUG_MODE =  false;
-// 思考内容处理策略: "strip" | "think" | "raw" (环境变量: THINK_TAGS_MODE)
-const THINK_TAGS_MODE =  "strip";
+const UPSTREAM_TOKEN = "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjA2ODkwYTFlLTlhNGMtNDgxYS05ZDUxLWJhNjg0ZjZhMjg5ZiIsImVtYWlsIjoiR3Vlc3QtMTc1NjQxNjAxNjAzOEBndWVzdC5jb20ifQ.Pcy5W9cmaRdUrojk79CWQdrj4c03tdBzEmV9BH5rQKwFvKRG0BkBBxmqE5GgwLGBde3Y26FVVfV1A7UtrBSFGQ";
+// 是否开启调试模式 (环境变量: DEBUG_MODE)
+const DEBUG_MODE = false;
+// 思考内容处理策略: "strip" | "show" (环境变量: THINK_TAGS_MODE)
+const THINK_TAGS_MODE = "show";
 // 是否启用匿名 token (环境变量: ANON_TOKEN_ENABLED)
 const ANON_TOKEN_ENABLED_STR = "true";
 const ANON_TOKEN_ENABLED = ANON_TOKEN_ENABLED_STR !== undefined ? ANON_TOKEN_ENABLED_STR === 'true' : true;
@@ -88,10 +92,10 @@ function handleCors(): Response {
 }
 
 function applyCors(response: Response): Response {
-    response.headers.set("Access-Control-Allow-Origin", "*");
-    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return response;
+  response.headers.set("Access-Control-Allow-Origin", "*");
+  response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return response;
 }
 
 async function handleModels(_request: Request): Promise<Response> {
@@ -209,48 +213,48 @@ async function handleChatCompletions(request: Request): Promise<Response> {
   const upstreamResponse = await callUpstream(upstreamReq, chatID, authToken);
 
   if (!upstreamResponse.ok) {
-      const errorBody = await upstreamResponse.text();
-      debugLog(`上游错误: ${upstreamResponse.status}`, errorBody);
-      return applyCors(new Response("Upstream error", { status: 502 }));
+    const errorBody = await upstreamResponse.text();
+    debugLog(`上游错误: ${upstreamResponse.status}`, errorBody);
+    return applyCors(new Response("Upstream error", { status: 502 }));
   }
 
   if (openaiReq.stream) {
     const stream = processUpstreamStream(upstreamResponse.body!, openaiReq);
     const response = new Response(stream, {
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" }
     });
     return applyCors(response);
   } else {
     const fullContent = await collectFullResponse(upstreamResponse.body!);
     // 构造严格匹配的非流式响应
     const openaiResponse = {
-        id: `chatcmpl-${Date.now()}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: openaiReq.model,
-        choices: [{
-            index: 0,
-            message: {
-                role: "assistant",
-                content: fullContent,
-                refusal: null,
-                annotations: [],
-            },
-            logprobs: null,
-            finish_reason: "stop",
-        }],
-        usage: { // 填充 usage 结构
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-            prompt_tokens_details: { cached_tokens: 0, audio_tokens: 0 },
-            completion_tokens_details: { reasoning_tokens: 0, audio_tokens: 0, accepted_prediction_tokens: 0, rejected_prediction_tokens: 0 }
+      id: `chatcmpl-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: openaiReq.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: fullContent,
+          refusal: null,
+          annotations: [],
         },
-        service_tier: "default",
-        system_fingerprint: SYSTEM_FINGERPRINT,
+        logprobs: null,
+        finish_reason: "stop",
+      }],
+      usage: { // 填充 usage 结构
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        prompt_tokens_details: { cached_tokens: 0, audio_tokens: 0 },
+        completion_tokens_details: { reasoning_tokens: 0, audio_tokens: 0, accepted_prediction_tokens: 0, rejected_prediction_tokens: 0 }
+      },
+      service_tier: "default",
+      system_fingerprint: SYSTEM_FINGERPRINT,
     };
     const response = new Response(JSON.stringify(openaiResponse), {
-        headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' }
     });
     return applyCors(response);
   }
@@ -292,6 +296,8 @@ function processUpstreamStream(upstreamBody: ReadableStream<Uint8Array>, openaiR
   const decoder = new TextDecoder();
   let buffer = '';
   const includeUsage = openaiReq.stream_options && openaiReq.stream_options.include_usage === true;
+  const mode = THINK_TAGS_MODE;
+  let editContentProcessed = false; // 标记 edit_content 是否已处理
 
   return new ReadableStream({
     async start(controller) {
@@ -331,7 +337,7 @@ function processUpstreamStream(upstreamBody: ReadableStream<Uint8Array>, openaiR
               created: Math.floor(Date.now() / 1000),
               model: modelIdentifier,
               system_fingerprint: SYSTEM_FINGERPRINT,
-              choices: [], // Usage chunk has empty choices
+              choices: [],
               usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
             };
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`));
@@ -355,30 +361,85 @@ function processUpstreamStream(upstreamBody: ReadableStream<Uint8Array>, openaiR
             const upstreamData = JSON.parse(dataStr);
             if (upstreamData.error || (upstreamData.data && upstreamData.data.error)) {
               debugLog("上游错误:", upstreamData.error || upstreamData.data.error);
-              continue; // 忽略错误块
+              continue;
             }
 
-            if (upstreamData.data && upstreamData.data.delta_content) {
-              let out = upstreamData.data.delta_content;
-              if (upstreamData.data.phase === "thinking") {
-                out = transformThinking(out);
+            if (upstreamData.data) {
+              const phase = upstreamData.data.phase;
+              const deltaContent = upstreamData.data.delta_content || "";
+              const editContent = upstreamData.data.edit_content || "";
+
+              // thinking 阶段：使用 reasoning_content 字段
+              if (phase === "thinking") {
+                if (deltaContent && mode === "show") {
+                  const processedContent = cleanThinkingContent(deltaContent);
+
+                  debugLog(`[Thinking] 原始: ${deltaContent.substring(0, 50)}... -> 处理后: ${processedContent.substring(0, 50)}...`);
+
+                  if (processedContent !== "") {
+                    const chunk = {
+                      id: `chatcmpl-${Date.now()}`,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: modelIdentifier,
+                      system_fingerprint: SYSTEM_FINGERPRINT,
+                      choices: [{
+                        index: 0,
+                        delta: { reasoning_content: processedContent }, // 使用 reasoning_content 字段
+                        logprobs: null,
+                        finish_reason: null
+                      }],
+                    };
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                    debugLog(`[Thinking] 已发送 chunk，长度: ${processedContent.length}`);
+                  } else {
+                    debugLog(`[Thinking] 内容为空，跳过发送`);
+                  }
+                }
               }
-              if (out) {
-                const chunk = {
+              // answer 阶段：使用 content 字段
+              else if (phase === "answer") {
+                // 处理初始的 edit_content（只处理一次）
+                if (!editContentProcessed && editContent) {
+                  editContentProcessed = true;
+                  debugLog(`[Answer] 处理 edit_content，长度: ${editContent.length}`);
+
+                  // 提取 </details> 后的内容
+                  const parts = editContent.split(/<\/details>/);
+                  if (parts.length > 1) {
+                    const initialAnswer = parts[1].trim();
+                    if (initialAnswer) {
+                      debugLog(`[Answer] 发送初始答案: ${initialAnswer.substring(0, 50)}...`);
+                      const chunk = {
+                        id: `chatcmpl-${Date.now()}`,
+                        object: "chat.completion.chunk",
+                        created: Math.floor(Date.now() / 1000),
+                        model: modelIdentifier,
+                        system_fingerprint: SYSTEM_FINGERPRINT,
+                        choices: [{ index: 0, delta: { content: initialAnswer }, logprobs: null, finish_reason: null }],
+                      };
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                    }
+                  }
+                }
+
+                // 处理后续的 delta_content
+                if (deltaContent) {
+                  debugLog(`[Answer] 发送 delta: ${deltaContent}`);
+                  const chunk = {
                     id: `chatcmpl-${Date.now()}`,
                     object: "chat.completion.chunk",
                     created: Math.floor(Date.now() / 1000),
                     model: modelIdentifier,
                     system_fingerprint: SYSTEM_FINGERPRINT,
-                    choices: [{ index: 0, delta: { content: out }, logprobs: null, finish_reason: null }],
-                };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                    choices: [{ index: 0, delta: { content: deltaContent }, logprobs: null, finish_reason: null }],
+                  };
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+                }
               }
             }
 
             if (upstreamData.data && (upstreamData.data.done || upstreamData.data.phase === "done")) {
-              // 上游已完成，但我们等待reader.read()的done信号来发送最终块
-              // 这样可以确保所有缓冲的数据都已处理
               continue;
             }
           } catch (e) {
@@ -393,75 +454,93 @@ function processUpstreamStream(upstreamBody: ReadableStream<Uint8Array>, openaiR
 }
 
 async function collectFullResponse(upstreamBody: ReadableStream<Uint8Array>): Promise<string> {
-    const reader = upstreamBody.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullContent = '';
+  const reader = upstreamBody.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answerContent = '';
+  const mode = THINK_TAGS_MODE;
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop()!;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop()!;
 
-        for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const dataStr = line.substring(6);
-            if (!dataStr) continue;
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const dataStr = line.substring(6);
+      if (!dataStr) continue;
 
-            try {
-                const upstreamData = JSON.parse(dataStr);
-                if (upstreamData.data && upstreamData.data.delta_content) {
-                    let out = upstreamData.data.delta_content;
-                    if (upstreamData.data.phase === "thinking") {
-                        out = transformThinking(out);
-                    }
-                    if (out) fullContent += out;
-                }
-                if (upstreamData.data && (upstreamData.data.done || upstreamData.data.phase === "done")) {
-                    // deno-lint-ignore no-empty
-                    try { await reader.cancel(); } catch {}
-                    return fullContent;
-                }
-            } catch (e) {
-                debugLog("非流式响应解析错误", e);
+      try {
+        const upstreamData = JSON.parse(dataStr);
+        if (upstreamData.data) {
+          const phase = upstreamData.data.phase;
+          const deltaContent = upstreamData.data.delta_content || "";
+
+          // thinking 阶段：跳过（非流式响应不包含思考内容）
+          if (phase === "thinking") {
+            // 非流式响应中不包含思考内容
+            continue;
+          }
+          // answer 阶段：累积答案内容
+          else if (phase === "answer") {
+            if (deltaContent) {
+              answerContent += deltaContent;
             }
+          }
         }
+
+        if (upstreamData.data && (upstreamData.data.done || upstreamData.data.phase === "done")) {
+          // deno-lint-ignore no-empty
+          try { await reader.cancel(); } catch { }
+          return answerContent;
+        }
+      } catch (e) {
+        debugLog("非流式响应解析错误", e);
+      }
     }
-    return fullContent;
+  }
+  return answerContent;
 }
 
-function transformThinking(s: string): string {
-    if (!s) return "";
-    s = s.replace(/<summary>.*?<\/summary>/gs, "");
-    s = s.replace(/<\/thinking>|<Full>|<\/Full>/g, "");
-    s = s.trim();
+// 清理思考内容（参考 Go 版本和 Workers 版本）
+function cleanThinkingContent(content: string): string {
+  if (!content) return "";
 
-    // Deno: 从全局配置获取模式
-    const mode = THINK_TAGS_MODE;
-    switch (mode) {
-        case "think":
-            s = s.replace(/<details[^>]*>/g, "<think>").replace(/<\/details>/g, "</think>");
-            break;
-        case "strip":
-            s = s.replace(/<details[^>]*>/g, "").replace(/<\/details>/g, "");
-            break;
-    }
+  // 移除 <summary>...</summary>
+  content = content.replace(/<summary>.*?<\/summary>/gs, "");
 
-    if (s.startsWith("> ")) s = s.substring(2);
-    s = s.replace(/\n> /g, "\n");
-    return s.trim();
+  // 清理残留标签
+  content = content.replace(/<\/thinking>/g, "");
+  content = content.replace(/<Full>/g, "");
+  content = content.replace(/<\/Full>/g, "");
+  content = content.replace(/<details[^>]*>/g, "");
+  content = content.replace(/<\/details>/g, "");
+
+  // 处理引用符号（按 Go 版本逻辑）
+  // 先处理开头的 "> "
+  if (content.startsWith("> ")) {
+    content = content.substring(2);
+  }
+  // 再处理换行后的 "> "
+  content = content.replace(/\n> /g, "\n");
+
+  // 最后 trim 移除前后空白
+  return content.trim();
 }
 
 // ================= Deno Entry Point ==================
 // Deno: 使用 Deno.serve() 启动服务器。Deno Deploy 会自动处理端口。
-console.log(`OpenAI to Z.ai Proxy (Deno Version)`);
+console.log(`OpenAI to Z.ai Proxy (Deno v4.0)`);
 console.log(`Downstream KEY: ${DOWNSTREAM_KEY.slice(0, 5)}...`);
-console.log(`Upstream Token: ${UPSTREAM_TOKEN.length > 0 ? `${UPSTREAM_TOKEN.slice(0,5)}...` : 'N/A'}`);
+console.log(`Upstream Token: ${UPSTREAM_TOKEN.length > 0 ? `${UPSTREAM_TOKEN.slice(0, 5)}...` : 'N/A'}`);
 console.log(`Anonymous Token: ${ANON_TOKEN_ENABLED ? 'Enabled' : 'Disabled'}`);
+console.log(`Think Tags Mode: ${THINK_TAGS_MODE} (strip=不显示 | show=显示思考内容)`);
 console.log(`Debug Mode: ${DEBUG_MODE ? 'Enabled' : 'Disabled'}`);
+console.log(`Using reasoning_content field for thinking (OpenAI o1 compatible)`);
 console.log(`Starting server for Deno Deploy...`);
 
+// @ts-ignore - Deno 全局对象在 Deno 运行时可用
 Deno.serve(handleRequest);

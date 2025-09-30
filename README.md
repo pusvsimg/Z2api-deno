@@ -1,4 +1,4 @@
-# Z2API-Deno: OpenAI to Z.ai 代理
+# Z2API: OpenAI to Z.ai 代理服务
 
 > [!CAUTION]
 > **免责声明**
@@ -11,64 +11,343 @@
 >
 > **请在遵守相关法律法规的前提下使用本项目。任何非法使用均与项目作者无关。**
 
-这是一个基于 Deno 的轻量级代理服务，它将 [Z.ai](https://chat.z.ai/) 的 API 转换为与 OpenAI API 完全兼容的格式。这使得任何支持 OpenAI 的客户端或应用都可以无缝对接到 Z.ai 的模型服务。
+这是一个轻量级代理服务，将 [Z.ai](https://chat.z.ai/) 的 API 转换为与 OpenAI API 完全兼容的格式。支持任何 OpenAI 客户端无缝对接 Z.ai 的模型服务。
 
-[![Deploy with Deno](https://deno.com/deno-deploy-button.svg)](https://dash.deno.com/new?url=https://raw.githubusercontent.com/james-6-23/Z2api-deno/main/index.ts)
+**提供两个版本：**
+- 🦕 **Deno 版本** (`index.ts`) - 适合 Deno Deploy 部署
+- ⚡ **Cloudflare Workers 版本** (`worker.js`) - 适合 Cloudflare Workers 部署
+
+---
 
 ## ✨ 功能特性
 
-- **OpenAI 格式兼容**: 完全模拟 `/v1/chat/completions` 和 `/v1/models` 接口，支持流式和非流式响应。
-- **动态模型列表**: 自动从上游获取并转换模型列表，确保客户端看到的是最新的可用模型。
-- **匿名 Token 策略**: 智能获取临时匿名 Token 来访问上游服务，有效避免因固定 Token 请求频率过高而被限制。
-- **环境变量配置**: 所有关键配置均通过环境变量设置，方便在 Deno Deploy 或其他环境中部署。
-- **CORS 支持**: 内置 CORS 处理，允许任何来源的前端应用直接调用。
-- **调试模式**: 可选的调试模式，方便开发者追踪请求和响应的详细信息。
+- ✅ **OpenAI 完全兼容**: 支持 `/v1/chat/completions` 和 `/v1/models` 接口
+- ✅ **思考内容支持**: 使用 `reasoning_content` 字段（OpenAI o1 标准），Cherry Studio 原生渲染
+- ✅ **流式 + 非流式**: 同时支持两种响应模式
+- ✅ **动态模型列表**: 自动从上游获取最新可用模型
+- ✅ **匿名 Token**: 智能获取临时 Token，避免频率限制
+- ✅ **CORS 支持**: 允许任何前端应用直接调用
+- ✅ **环境变量配置**: 灵活的配置管理
+- ✅ **调试模式**: 详细日志追踪
 
-## 🚀 一键部署
+---
 
-你可以使用下面的按钮将此项目一键部署到 Deno Deploy 的免费服务器上。
+## 🚀 快速部署
 
-[![Deploy with Deno](https://camo.githubusercontent.com/3bd1addadda204b1103c7989b704101b8c31d0760f803c72c93f805ff502012b/68747470733a2f2f64656e6f2e6c616e642f6c6f676f2e737667)](https://dash.deno.com/new?url=https://raw.githubusercontent.com/james-6-23/Z2api-deno/main/index.ts)
+### 选项 1: Cloudflare Workers（推荐）
 
-点击按钮后，你会被引导至 Deno Deploy 的创建页面。项目创建成功后，请务必在项目的 **Settings > Environment Variables** 中设置必要的环境变量。
+**3 步完成部署**：
 
-## ⚙️ 环境变量
+```bash
+# 1. 安装并登录
+npm install -g wrangler
+wrangler login
 
-为了让代理正常工作，你需要在部署环境（如 Deno Deploy）中配置以下环境变量：
+# 2. 配置密钥
+wrangler secret put DOWNSTREAM_KEY
+# 输入: sk-your-key-123
 
-| 变量名 | 是否必须 | 描述 | 默认值 |
-| :--- | :---: | :--- | :--- |
-| `DOWNSTREAM_KEY` | **是** | 用于下游客户端（如 NextChat）鉴权的 API Key。格式建议为 `sk-xxxxxxxx`。 | `sk-your-key` |
-| `UPSTREAM_TOKEN` | 否 | 备用的上游 Z.ai API 访问令牌。当匿名 Token 获取失败时会使用此令牌。 | `your-upstream-token-here` |
-| `ANON_TOKEN_ENABLED` | 否 | 是否启用匿名 Token 策略。强烈建议保持开启 (`true`) 以提高稳定性。 | `true` |
-| `THINK_TAGS_MODE` | 否 | 对 Z.ai 返回的思考过程（`<thinking>` 标签）的处理策略。`strip` 表示移除，`think` 表示保留为 `<think>` 标签。 | `strip` |
-| `DEBUG_MODE` | 否 | 是否开启调试模式。开启后会在控制台输出详细的日志信息。 | `false` |
+# 3. 部署
+wrangler deploy
+```
 
-## 💻 本地运行与开发
+部署完成后获得：`https://your-worker.workers.dev`
 
-如果你想在本地环境中运行或进行二次开发，请按照以下步骤操作：
+**详细指南**: [CLOUDFLARE_DEPLOY.md](CLOUDFLARE_DEPLOY.md)
 
-1.  **安装 Deno**:
-    确保你已经安装了 [Deno](https://deno.land/manual/getting_started/installation) (版本 >= 1.33)。
+---
 
-2.  **克隆项目**:
-    ```bash
-    git clone https://github.com/james-6-23/Z2api-deno.git
-    cd Z2api-deno
-    ```
+### 选项 2: Deno Deploy（一键部署）
 
-3.  **创建 `.env` 文件** (可选):
-    为了方便管理密钥，你可以在项目根目录创建一个 `.env` 文件，并填入你的配置：
-    ```env
-    DOWNSTREAM_KEY="sk-123456"
-    UPSTREAM_TOKEN="your-z.ai-token"
-    ANON_TOKEN_ENABLED="true"
-    ```
+[![Deploy with Deno](https://deno.com/deno-deploy-button.svg)](https://dash.deno.com/new?url=https://raw.githubusercontent.com/james-6-23/Z2api-deno/main/index.ts)
 
-4.  **运行脚本**:
-    执行以下命令来启动服务。Deno 会自动加载 `.env` 文件中的环境变量。
-    ```bash
-    deno run --allow-net --allow-env index.ts
-    ```
+部署后在 Settings -> Environment Variables 配置：
+```
+DOWNSTREAM_KEY = sk-your-key-123
+THINK_TAGS_MODE = show
+```
 
-    服务默认会在 `http://localhost:8000` 上运行。
+---
+
+## ⚙️ 环境变量配置
+
+| 变量名 | 必需 | 说明 | 默认值 |
+|--------|:----:|------|--------|
+| `DOWNSTREAM_KEY` | ✅ | 客户端 API Key（格式：`sk-xxx`） | - |
+| `UPSTREAM_TOKEN` | ❌ | Z.ai 备用 Token | - |
+| `ANON_TOKEN_ENABLED` | ❌ | 启用匿名 Token | `true` |
+| `THINK_TAGS_MODE` | ❌ | 思考内容模式：`strip`(不显示) / `show`(显示) | `strip` |
+| `DEBUG_MODE` | ❌ | 调试模式 | `false` |
+
+---
+
+## 💭 思考内容展示
+
+本代理服务支持 GLM-4 等模型的思考过程展示（类似 OpenAI o1）。
+
+### 配置方式
+
+```bash
+# 显示思考内容（推荐 Cherry Studio 用户）
+THINK_TAGS_MODE=show
+
+# 不显示思考内容（默认）
+THINK_TAGS_MODE=strip
+```
+
+### 技术实现
+
+使用标准 `reasoning_content` 字段传输思考内容：
+
+```json
+// thinking 阶段
+{
+  "choices": [{
+    "delta": {"reasoning_content": "分析用户输入..."}
+  }]
+}
+
+// answer 阶段
+{
+  "choices": [{
+    "delta": {"content": "你好！很高兴见到你..."}
+  }]
+}
+```
+
+### Cherry Studio 渲染效果
+
+使用 `show` 模式时：
+- ✅ 自动渲染为思考框
+- ✅ 实时流式展开（打字机效果）
+- ✅ 可折叠/展开
+- ✅ 与答案内容清晰分离
+
+---
+
+## 📱 客户端使用示例
+
+### Cherry Studio
+
+1. **添加服务商**: 选择 "OpenAI"
+2. **API 地址**: `https://your-worker.workers.dev`
+3. **API Key**: `sk-your-key-123`
+4. **启用思考**: 设置 `THINK_TAGS_MODE=show`
+
+### Python
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-your-key-123",
+    base_url="https://your-worker.workers.dev/v1"
+)
+
+# 流式请求
+stream = client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": "你好"}],
+    stream=True
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta
+    
+    # 思考内容（如果启用 show 模式）
+    if hasattr(delta, 'reasoning_content'):
+        print(f"💭 {delta.reasoning_content}", end='')
+    
+    # 答案内容
+    if delta.content:
+        print(delta.content, end='')
+```
+
+### Node.js
+
+```javascript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: 'sk-your-key-123',
+  baseURL: 'https://your-worker.workers.dev/v1'
+});
+
+const stream = await client.chat.completions.create({
+  model: 'gpt-4',
+  messages: [{ role: 'user', content: '你好' }],
+  stream: true
+});
+
+for await (const chunk of stream) {
+  const delta = chunk.choices[0]?.delta;
+  if (delta?.reasoning_content) console.log('💭', delta.reasoning_content);
+  if (delta?.content) console.log(delta.content);
+}
+```
+
+### curl
+
+```bash
+curl https://your-worker.workers.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-key-123" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }'
+```
+
+---
+
+## 💻 本地开发
+
+### Deno 版本
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/your-repo/Z2api-deno.git
+cd Z2api-deno
+
+# 2. 创建 .env 文件（可选）
+cat > .env << EOF
+DOWNSTREAM_KEY=sk-123456
+UPSTREAM_TOKEN=your-zai-token
+ANON_TOKEN_ENABLED=true
+THINK_TAGS_MODE=show
+DEBUG_MODE=false
+EOF
+
+# 3. 运行
+deno run --allow-net --allow-env index.ts
+```
+
+服务运行在 `http://localhost:8000`
+
+### Cloudflare Workers 版本
+
+```bash
+# 1. 安装依赖
+npm install
+
+# 2. 创建 .dev.vars 文件（本地密钥）
+cat > .dev.vars << EOF
+DOWNSTREAM_KEY=sk-test-key
+UPSTREAM_TOKEN=your-test-token
+EOF
+
+# 3. 本地运行
+npm run dev
+
+# 4. 部署到生产
+npm run deploy
+```
+
+---
+
+## 🔄 平台对比
+
+| 特性 | Deno Deploy | Cloudflare Workers |
+|------|-------------|-------------------|
+| **免费额度** | 100万请求/月 | 10万请求/天 |
+| **冷启动** | 快 | 极快 |
+| **全球分布** | ✅ | ✅ |
+| **部署难度** | ⭐⭐⭐⭐⭐（一键） | ⭐⭐⭐⭐（CLI） |
+| **CPU 时间** | 无限制 | 免费版 10ms |
+| **自定义域名** | ✅ | ✅ |
+| **推荐场景** | 个人使用 | 高并发生产环境 |
+
+---
+
+## 🐛 故障排查
+
+### 常见问题
+
+#### 502 Upstream error
+
+**原因**: 上游 Z.ai API 认证失败
+
+**解决**:
+```bash
+# 设置有效的 UPSTREAM_TOKEN
+wrangler secret put UPSTREAM_TOKEN
+
+# 或启用匿名 token
+ANON_TOKEN_ENABLED=true
+```
+
+#### 401 Invalid API key
+
+**原因**: 客户端 API Key 与 DOWNSTREAM_KEY 不匹配
+
+**解决**: 确保客户端使用的 key 与配置的 DOWNSTREAM_KEY 一致
+
+#### 思考内容不显示
+
+**检查**:
+1. 确认 `THINK_TAGS_MODE=show`
+2. 确认已重新部署
+3. 确认客户端支持 `reasoning_content` 字段（Cherry Studio、LobeChat 支持）
+
+#### 思考内容卡顿
+
+**诊断**:
+```bash
+# 启用调试模式
+DEBUG_MODE=true
+
+# 查看日志
+wrangler tail  # Cloudflare
+# 或查看 Deno Deploy 日志
+```
+
+**详细排查**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+---
+
+## 📊 版本更新记录
+
+### v4.0（当前版本）- 2025-09-30
+
+**重大改进**:
+- 🎉 采用 OpenAI o1 标准 `reasoning_content` 字段
+- ✅ 简化配置：只有 strip/show 两个模式
+- ✅ 修复思考内容卡顿问题
+- ✅ Deno 和 Workers 版本完全同步
+- ✅ 参考 Go 版本优化实现
+- ✅ 更好的客户端兼容性
+
+**技术细节**:
+- 使用 `reasoning_content` 字段传输思考内容
+- 使用 `content` 字段传输答案内容
+- 优化流式处理逻辑，减少过滤延迟
+- 添加详细调试日志
+
+---
+
+## 📚 相关资源
+
+- [Z.ai 官网](https://chat.z.ai/)
+- [OpenAI API 文档](https://platform.openai.com/docs/api-reference)
+- [Deno Deploy](https://deno.com/deploy/docs)
+- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
+- [Cherry Studio](https://github.com/kangfenmao/cherry-studio)
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+MIT License
+
+---
+
+## 📖 文档导航
+
+- 📘 **README.md**（本文档）- 项目总览和快速开始
+- 📗 **CLOUDFLARE_DEPLOY.md** - Cloudflare Workers 详细部署指南
+- 📙 **TROUBLESHOOTING.md** - 故障排查和性能优化
