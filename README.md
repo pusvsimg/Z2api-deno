@@ -1,5 +1,18 @@
 # Z2API: OpenAI to Z.ai 代理服务
 
+> [!IMPORTANT]
+> **🚨 紧急更新 (2025-09-30)**: 已修复 426 客户端校验失败错误
+> 
+> Z.ai 更新了验证机制，所有用户需要**立即重新部署**以修复 426 错误。
+> 
+> **快速修复**: 
+> - Cloudflare Workers: `wrangler deploy`
+> - Deno Deploy: `git push origin main`
+> 
+> **详细说明**: [QUICK_FIX.md](QUICK_FIX.md) | [完整文档](FIX_426_COMPLETE.md)
+
+---
+
 > [!CAUTION]
 > **免责声明**
 >
@@ -308,7 +321,32 @@ wrangler tail  # Cloudflare
 
 ## 📊 版本更新记录
 
-### v4.0（当前版本）- 2025-09-30
+### v4.1.0（当前版本）- 2025-09-30
+
+> 🚨 **重要**: 此版本修复了 426 客户端校验失败错误，所有用户需要立即更新！
+
+**紧急修复**:
+- 🔧 修复 426 错误：`{"detail":"您的客户端校验失败","code":426}`
+- ✅ 更新 X-FE-Version: `1.0.70` → `1.0.94`
+- ✅ 新增 X-Signature 签名验证机制
+- ✅ 更新请求头至 Chrome 140 标准
+- ✅ 同步 Deno 和 Workers 版本
+
+**修复内容**:
+```javascript
+// 新增 X-Signature 生成（基于请求体的 SHA-256 哈希）
+async function generateSignature(body) {
+  const hash = await crypto.subtle.digest('SHA-256', body);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+```
+
+**部署说明**: 查看 [QUICK_FIX.md](QUICK_FIX.md) 或 [FIX_426_COMPLETE.md](FIX_426_COMPLETE.md)
+
+---
+
+### v4.0 - 2025-09-30
 
 **重大改进**:
 - 🎉 采用 OpenAI o1 标准 `reasoning_content` 字段

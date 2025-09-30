@@ -45,15 +45,20 @@ const ANON_TOKEN_ENABLED = ANON_TOKEN_ENABLED_STR !== undefined ? ANON_TOKEN_ENA
 const ORIGIN_BASE = "https://chat.z.ai";
 const SYSTEM_FINGERPRINT = "fp_generated_by_proxy_deno"; // 静态系统指纹
 
-// 伪装的前端头部信息
+// 伪装的前端头部信息（2025-09-30 更新至最新版本）
+// 注意：X-Signature 是动态生成的签名字段，需要在每次请求时单独处理
 const FAKE_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
-  "Accept": "application/json, text/event-stream",
-  "Accept-Language": "zh-CN, en-US",
-  "sec-ch-ua": "\"Not;A=Brand\";v=\"99\", \"Microsoft Edge\";v=\"139\", \"Chromium\";v=\"139\"",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  "Accept": "*/*",
+  "Accept-Language": "zh-CN",
+  "Accept-Encoding": "gzip, deflate, br, zstd",
+  "sec-ch-ua": "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"",
   "sec-ch-ua-mobile": "?0",
   "sec-ch-ua-platform": "\"Windows\"",
-  "X-FE-Version": "prod-fe-1.0.70",
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "same-origin",
+  "X-FE-Version": "prod-fe-1.0.94",
   "Origin": ORIGIN_BASE,
 };
 
@@ -61,6 +66,21 @@ function debugLog(...args: any[]) {
   if (DEBUG_MODE) {
     console.log("[DEBUG]", ...args);
   }
+}
+
+/**
+ * 生成 X-Signature 请求签名
+ * Z.ai 使用这个签名来验证请求的有效性
+ * @param {string} body - 请求体（JSON 字符串）
+ * @returns {Promise<string>} - SHA-256 哈希值（十六进制）
+ */
+async function generateSignature(body: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(body);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
 }
 
 /**
@@ -280,12 +300,17 @@ async function callUpstream(upstreamReq: any, refererChatID: string, authToken: 
   const reqBody = JSON.stringify(upstreamReq);
   debugLog("上游请求体:", reqBody);
 
+  // 生成 X-Signature（基于请求体的 SHA-256 哈希）
+  const signature = await generateSignature(reqBody);
+  debugLog("生成签名:", signature);
+
   const headers = {
     ...FAKE_HEADERS,
     "Content-Type": "application/json",
     "Authorization": `Bearer ${authToken}`,
     "Referer": `${ORIGIN_BASE}/c/${refererChatID}`,
     "Cookie": `token=${authToken}`,
+    "X-Signature": signature, // 添加签名头
   };
 
   return fetch(UPSTREAM_URL, { method: "POST", headers, body: reqBody });
