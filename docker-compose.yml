@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  z2api-python:
+    build:
+      context: ./zapi-python
+    image: z2api-python:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DOWNSTREAM_KEY: "sk-your-downstream-key"
+      UPSTREAM_TOKEN: ""
+      ANON_TOKEN_ENABLED: "true"
+      THINK_TAGS_MODE: "strip"
+      DEBUG_MODE: "false"
+    restart: unless-stopped
