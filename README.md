@@ -337,18 +337,21 @@ npm run deploy
 ### Docker Compose 运行
 
 ```bash
-# 1. 构建并启动服务（使用仓库自带 docker-compose.yml）
+# 1. 设置 GitHub 容器镜像命名空间
+export GITHUB_OWNER=your-gh-username
+
+# 2. 拉取并启动服务（使用仓库自带 docker-compose.yml）
 docker compose up -d
 
-# 2. 查看日志
+# 3. 查看日志
 docker compose logs -f z2api-python
 
-# 3. 调整环境变量
+# 4. 调整环境变量
 # 编辑 docker-compose.yml 中的 environment 字段，例如：
 #   DOWNSTREAM_KEY: "sk-your-downstream-key"
 #   THINK_TAGS_MODE: "show"
 
-# 4. 停止并移除容器
+# 5. 停止并移除容器
 docker compose down
 ```
 

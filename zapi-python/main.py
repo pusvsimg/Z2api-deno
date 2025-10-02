@@ -95,7 +95,12 @@ async def fetch_models(client: httpx.AsyncClient, cfg: Dict[str, str]) -> Dict[s
     }
 
     try:
-        resp = await client.get("https://chat.z.ai/api/models", headers=headers, timeout=30)
+        resp = await client.get(
+            "https://chat.z.ai/api/models",
+            headers=headers,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            follow_redirects=True,
+        )
         resp.raise_for_status()
         upstream = resp.json()
         transformed = [
@@ -324,7 +329,7 @@ async def health() -> JSONResponse:
 @app.get("/v1/models")
 async def models() -> JSONResponse:
     cfg = get_config()
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(http2=True, timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         result = await fetch_models(client, cfg)
         return JSONResponse(result)
 
@@ -360,7 +365,7 @@ async def chat_completions(request: Request) -> Response:
         "background_tasks": {"title_generation": False, "tags_generation": False},
     }
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with httpx.AsyncClient(http2=True, timeout=httpx.Timeout(None, connect=20.0)) as client:
         try:
             token = await get_auth_token(client, cfg)
         except Exception as exc:
