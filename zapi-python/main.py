@@ -1,9 +1,8 @@
-import asyncio
 import hashlib
 import json
 import os
 import time
-from typing import AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Dict
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -17,9 +16,9 @@ SYSTEM_FINGERPRINT = "fp_generated_by_proxy_cf"
 
 FAKE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-    "Accept": "*/*",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Encoding": "gzip, deflate, br",
     "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
@@ -28,6 +27,7 @@ FAKE_HEADERS = {
     "sec-fetch-site": "same-origin",
     "X-FE-Version": "prod-fe-1.0.94",
     "Origin": ORIGIN_BASE,
+    "X-Requested-With": "XMLHttpRequest",
 }
 
 
@@ -53,8 +53,14 @@ async def generate_signature(body: str) -> str:
 
 async def get_anonymous_token(client: httpx.AsyncClient) -> str:
     headers = {k: v for k, v in FAKE_HEADERS.items() if k != "Accept"}
+    headers["Accept"] = "application/json, text/plain, */*"
     headers["Referer"] = f"{ORIGIN_BASE}/"
-    resp = await client.get(f"{ORIGIN_BASE}/api/v1/auths/", headers=headers, timeout=20)
+    resp = await client.get(
+        f"{ORIGIN_BASE}/api/v1/auths/",
+        headers=headers,
+        timeout=httpx.Timeout(20.0, connect=10.0),
+        follow_redirects=True,
+    )
     resp.raise_for_status()
     data = resp.json()
     token = data.get("token")
@@ -84,38 +90,65 @@ async def fetch_models(client: httpx.AsyncClient, cfg: Dict[str, str]) -> Dict[s
         token = await get_auth_token(client, cfg)
     except Exception as exc:
         debug_log(cfg, "model token error", repr(exc))
-        return {"object": "list", "data": []}
+        raise HTTPException(status_code=401, detail=str(exc))
 
     headers = {
         **FAKE_HEADERS,
         "Accept": "application/json",
         "Authorization": f"Bearer {token}",
         "Referer": f"{ORIGIN_BASE}/",
-        "Cookie": f"token={token}",
     }
 
     try:
         resp = await client.get(
             "https://chat.z.ai/api/models",
             headers=headers,
+            cookies={"token": token},
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=True,
         )
         resp.raise_for_status()
-        upstream = resp.json()
-        transformed = [
-            {
-                "id": item.get("id"),
-                "object": "model",
-                "created": item.get("created_at"),
-                "owned_by": item.get("owned_by"),
-            }
-            for item in upstream.get("data", [])
-        ]
-        return {"object": "list", "data": transformed}
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:500] if exc.response is not None else ""
+        debug_log(cfg, "model fetch status error", body)
+        raise HTTPException(status_code=exc.response.status_code if exc.response else 502, detail="Failed to fetch models from upstream")
     except Exception as exc:
         debug_log(cfg, "model fetch error", repr(exc))
-        return {"object": "list", "data": []}
+        raise HTTPException(status_code=502, detail="Failed to fetch models from upstream")
+
+    try:
+        upstream = resp.json()
+    except json.JSONDecodeError:
+        debug_log(cfg, "model response decode error", resp.text[:200])
+        raise HTTPException(status_code=502, detail="Invalid upstream response format")
+
+    raw_models = []
+    if isinstance(upstream, dict):
+        data_field = upstream.get("data")
+        if isinstance(data_field, list):
+            raw_models = data_field
+        elif isinstance(data_field, dict):
+            if isinstance(data_field.get("data"), list):
+                raw_models = data_field.get("data")
+            elif isinstance(data_field.get("items"), list):
+                raw_models = data_field.get("items")
+
+    transformed = [
+        {
+            "id": item.get("id"),
+            "object": "model",
+            "created": item.get("created_at") or item.get("created"),
+            "owned_by": item.get("owned_by") or item.get("owner"),
+        }
+        for item in raw_models
+        if isinstance(item, dict) and item.get("id")
+    ]
+
+    if not transformed:
+        debug_log(cfg, "model list empty", upstream)
+        raise HTTPException(status_code=502, detail="Upstream returned empty model list")
+
+    return {"object": "list", "data": transformed}
 
 
 async def call_upstream(client: httpx.AsyncClient, payload: Dict[str, object], chat_id: str, token: str, cfg: Dict[str, str]) -> httpx.Response:
@@ -329,7 +362,13 @@ async def health() -> JSONResponse:
 @app.get("/v1/models")
 async def models() -> JSONResponse:
     cfg = get_config()
-    async with httpx.AsyncClient(http2=True, timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+    transport = httpx.AsyncHTTPTransport(retries=2)
+    async with httpx.AsyncClient(
+        http2=True,
+        timeout=httpx.Timeout(30.0, connect=10.0),
+        transport=transport,
+        headers={k: v for k, v in FAKE_HEADERS.items() if k != "Cookie"},
+    ) as client:
         result = await fetch_models(client, cfg)
         return JSONResponse(result)
 
@@ -365,7 +404,13 @@ async def chat_completions(request: Request) -> Response:
         "background_tasks": {"title_generation": False, "tags_generation": False},
     }
 
-    async with httpx.AsyncClient(http2=True, timeout=httpx.Timeout(None, connect=20.0)) as client:
+    transport = httpx.AsyncHTTPTransport(retries=2)
+    async with httpx.AsyncClient(
+        http2=True,
+        timeout=httpx.Timeout(None, connect=20.0),
+        transport=transport,
+        headers={k: v for k, v in FAKE_HEADERS.items() if k != "Cookie"},
+    ) as client:
         try:
             token = await get_auth_token(client, cfg)
         except Exception as exc:
@@ -426,3 +471,15 @@ async def chat_completions(request: Request) -> Response:
 
 
 __all__ = ["app"]
+
+
+if __name__ == "__main__":
+    import asyncio
+    from hypercorn.asyncio import serve
+    from hypercorn.config import Config
+
+    port = int(os.getenv("PORT", "8080"))
+    config = Config()
+    config.bind = [f"0.0.0.0:{port}"]
+    config.worker_class = "asyncio"
+    asyncio.run(serve(app, config))
