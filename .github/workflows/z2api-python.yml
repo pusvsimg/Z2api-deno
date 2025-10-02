@@ -1,0 +1,36 @@
+name: Build and Push z2api-python Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./zapi-python
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/z2api-python:latest
+            ghcr.io/${{ github.repository_owner }}/z2api-python:${{ github.sha }}
+          platforms: linux/amd64
