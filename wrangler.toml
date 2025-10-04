@@ -1,0 +1,8 @@
+name = "z2api-proxy"
+main = "worker.js"
+compatibility_date = "2023-10-01"
+
+[vars]
+ANON_TOKEN_ENABLED = "true"
+THINK_TAGS_MODE = "strip"
+DEBUG_MODE = "false"
