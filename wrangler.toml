@@ -1,4 +1,4 @@
-name = "z2api"
+name = "z2api-proxy-404"
 main = "worker.js"
 compatibility_date = "2023-10-01"
 
